@@ -3,7 +3,7 @@ Repository for code of paper "Aligned and oblique dynamics in recurrent neural n
 The code should enable to reproduce all results. 
 
 
-All code was run with python 3.10.6, with packages specified in 'requirements.txt'.
+All code was run with python 3.10.6, with packages specified in $requirements.txt$.
 All analysis and plotting was done in notebooks. Notebooks generating the bulk of the simulations end on <...gen.ipynb>. 
 Simulations are run with pytorch. They should run both on CPU and GPU (most recent tests only on CPU).
 
