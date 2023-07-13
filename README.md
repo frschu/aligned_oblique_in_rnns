@@ -9,6 +9,7 @@ Similar to the structure of the paper, the notebooks are structured in 4 blocks:
 - `neuro...`: Simulating and analysing results for different neuroscience tasks.
 - `experimental_data...`: Analysis of the experimental data.
 - `sine_example...`: The simple sine task that is analyzed in the Methods section.
+
 Notebooks generating the bulk of the simulations end on `...gen.ipynb`. 
 
 For the results on the experimental data:
