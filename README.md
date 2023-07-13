@@ -19,8 +19,10 @@ For the results on the experimental data:
 
 
 ### Requirements
-All code was run with python 3.10.6, with packages specified in `requirements.txt`.
+All code was run with python 3.10.6, with packages specified in `requirements.txt` (to be used within a python venv).
 Simulations are run with pytorch. They should run both on CPU and GPU (most recent tests only on CPU).
 For plotting, a recent version of Latex should be installed.
+
+
 
 @ Friedrich Schuessler, 2023
