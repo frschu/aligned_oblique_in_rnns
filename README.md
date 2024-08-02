@@ -10,11 +10,13 @@ Similar to the structure of the paper, the notebooks are structured in 4 blocks:
 - `experimental_data...`: Analysis of the experimental data.
 - `sine_example...`: The simple sine task that is analyzed in the Methods section.
 
-Notebooks generating the bulk of the simulations end on `...gen.ipynb`. 
+Notebooks generating the bulk of the simulations end on `..._train_networks.ipynb`. 
+For the different neuroscience tasks, the notebook `neuro_compute_results.ipynb` computes the results for figures comparing across tasks. 
+This should be run before any of the `neuro_plot_....ipynb` notebooks, which generate the plots. 
 
 For the results on the experimental data:
 - Run the notebook `experimental_data_download.ipynb` first. This will download the datasets (NLB, BCI, Russo).
-- Then run the notebook `experimental_data_run_analysis.ipynb`. This will compute the statistics to be plotted. Can take some minutes.
+- Then run the notebook `experimental_data_compute_results.ipynb`. This will compute the statistics to be plotted. Can take some minutes.
 - Finally run `experimental_data_plot.ipynb` to generate plots. 
 
 

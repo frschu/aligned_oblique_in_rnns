@@ -422,6 +422,151 @@ def load_russo_2018(file_name, subs_step=1):
 ############################################################################################
 ### Neural Latents Benchmark Datasets
 ############################################################################################
+def load_nlb_rtt(dataset_name, 
+                verbose=False,
+                bin_width_ms=45, #ms (BCI: 45ms, no filter)
+                kern_sd_ms=45, #ms (25ms: Russo, but with much higher firing rates)
+    ):
+    from nlb_tools.nwb_interface import NWBDataset
+    import pandas as pd
+    filter_rates = kern_sd_ms > 0
+    _, nlb_dataset = dataset_name.split('-')
+
+    ## Load data from NWB file
+    data_path_nlb = os.path.join(data_path, "neural_latents")
+    file_name = '000129'
+    monkey_file = "sub-Indy"
+    data_file = os.path.join(data_path_nlb, file_name, monkey_file) 
+    dataset = NWBDataset(data_file)
+    if verbose:
+        print("Loaded from ", data_file)
+        print("All data")
+        print("dataset.data.shape", dataset.data.shape)
+    ### Dataset preparation
+    # Choose bin width and resample
+    dataset.resample(bin_width_ms)
+    if verbose:
+        print("All data, binned")
+        print(dataset.data.shape)
+    ################################################################################
+    ### Some preprocessing
+    # Remove test trials, because these do not contain behavior
+    trial_mask = np.array(dataset.trial_info["split"] != "test")
+    # Get trial data
+    trial_data = dataset.make_trial_data(ignored_trials=~trial_mask, )
+    # Free the memory from the full dataset, which we won't use anymore
+    del dataset
+    # Merge heldout and non-heldout spikes, since we don't distinguish here. 
+    trial_data.rename(columns={"heldout_spikes": "spikes"}, inplace=True)
+    trial_data = trial_data.reindex(trial_data.columns.sortlevel(0)[0], axis=1)
+    # Remove align and trial time. These are nonsense.
+    trial_data.drop('trial_time', axis=1, inplace=True)
+    trial_data.drop('align_time', axis=1, inplace=True)
+    # Distance to target
+    d_to_target = (trial_data.cursor_pos - trial_data.target_pos).apply(lambda x: norm(x), axis=1)
+    trial_data["d_to_target"] = d_to_target
+    # Where do targets change?
+    target_pos = trial_data.target_pos.to_numpy()
+    ids_shift_target = np.where(norm(target_pos[1:] - target_pos[:-1], axis=-1) != 0)[0] + 1
+    # Obtain actual trial times.
+    df_list = []
+    id_st = ids_shift_target[0]
+    for i_trial, id_st_p1 in enumerate(ids_shift_target[1:]):
+        tdi = trial_data.iloc[id_st:id_st_p1].copy()
+        tdi["trial_time"] = tdi["clock_time"] - tdi["clock_time"].iloc[0]
+        tdi["trial_id"] = i_trial
+        df_list.append(tdi)
+        id_st = id_st_p1
+    trial_data = pd.concat(df_list)
+    # Multiindex: use trial ID as index
+    trial_data['t'] = trial_data["trial_time"] / np.timedelta64(1, "ms")
+    trial_data.set_index(["trial_id", "t"], inplace=True)
+    # Remove unnecessary columns
+    trial_data.drop('margin', axis=1, inplace=True)
+    trial_data.drop('trial_time', axis=1, inplace=True)
+    # Rates
+    if filter_rates:
+        # Filter width for rates. It's useful to define this here, so we can set the margins appropriately.
+        import scipy.signal as signal
+        def filt(x):
+            kern_sd = int(round(kern_sd_ms / bin_width_ms))
+            window = signal.gaussian(kern_sd * 6, kern_sd, sym=True)
+            window /= np.sum(window)
+            return np.convolve(x, window, 'same')
+        rates = trial_data["spikes"].transform(filt).astype(np.float32)
+    else:
+        rates = trial_data["spikes"].astype(np.float32)
+    # In Hz:
+    rates = rates / (bin_width_ms * 1e-3)
+    if verbose:
+        print("rates, binned, removed test trials")
+        print("rates.shape", rates.shape)
+    ################################################################################
+    # Some other definitions that will be useful below.
+    trial_ids = trial_data.index.get_level_values(0).unique().to_numpy()
+    n_trials = len(trial_ids)
+    # Number of channels (neurons recorded)
+    n_ch = rates.shape[1]
+    # Checks
+    if verbose:
+        print("Number of channels:", n_ch)
+        print("Number of trials:", n_trials)
+    ##########################################################################################
+    # Behavior: cursor, hand pos, hand vel, eyes
+    obs_bh = ["target_pos", "cursor_pos", "finger_pos", "finger_vel"]
+    xy_bh = ["x", "y"]
+    mi_bh = pd.MultiIndex.from_product([obs_bh, xy_bh])
+    behav = trial_data[mi_bh].copy()
+    behav["clock_time"] = trial_data["clock_time"]
+    behav["d_to_target"] = trial_data["d_to_target"]
+    del trial_data
+    # Add acceleration to behavior
+    vel = behav["finger_vel"]
+    dv = vel.groupby(["trial_id"]).diff(1)
+    dv_str = "finger_acc"
+    behav[dv_str, "x"] = dv["x"]
+    behav[dv_str, "y"] = dv["y"]
+    obs_bh.append(dv_str)
+    # Labels
+    behav = behav[["finger_pos", "finger_vel", "finger_acc", "cursor_pos", "target_pos", "clock_time", "d_to_target"]]
+    mi_bh = behav.columns
+    obs_bh = np.array(mi_bh.get_level_values(0))[::2]
+    lbls_bh = [ob.replace("_", " ").capitalize() for ob in obs_bh]
+    n_bh = len(lbls_bh)
+    
+    ################################################################################
+    # For decoding, we limit ourselves to a smaller time interval, during which there is movement. 
+    t_min = 300
+    t_max = 600
+    t = behav.reset_index()["t"] 
+    dt = int(t[1] - t[0]) 
+    mask_mov = (t >= t_min) * (t < t_max)
+    ids_mov = np.where(mask_mov)[0]
+    
+    # Firing rates (with delay time between firing rates and output).
+    t_delays = {
+        "finger_pos": -270,
+        "finger_vel": -100,
+        "finger_acc": -150,
+    }
+        
+    # Join all three output modalities. This will save some time downstream, 
+    # because we only need to do the preprocessing once. 
+    output_mods = ["finger_pos", "finger_vel", "finger_acc"]
+    output_dict = {}
+    hids_dict = {}
+    for output_mod in output_mods:
+        output_i = behav.iloc[ids_mov][output_mod].to_numpy()
+        t_delay = t_delays[output_mod]
+        ids_hids = ids_mov + int(t_delay / dt)
+        hids_i = rates.iloc[ids_hids].to_numpy()
+
+        # Save normalized versions
+        output_dict[output_mod] = output_i
+        hids_dict[output_mod] = hids_i
+
+    return output_dict, hids_dict
+
 def load_nlb_maze(dataset_name, 
                 verbose=False,
                 bin_width_ms=45, #ms (BCI: 45ms, no filter)
@@ -579,7 +724,7 @@ def load_nlb_maze(dataset_name,
     
     # Firing rates (with delay time between firing rates and output).
     t_delays = {
-        "hand_pos": -300,
+        "hand_pos": -270, #-300,
         "hand_vel": -100,
         "hand_acc": -100,
     }
@@ -592,7 +737,8 @@ def load_nlb_maze(dataset_name,
     for output_mod in output_mods:
         output_i = behav.loc[:, :, :, mask_mov][output_mod]
         t_delay = t_delays[output_mod]
-        mask_hids = (t >= t_min + t_delay) * (t < t_max + t_delay)
+        mask_hids = (t >= (t_min + t_delay)) * (t < (t_max + t_delay))
+        # print(t[mask_hids])
         hids_i = rates.loc[:, :, :, mask_hids]
         # Save normalized versions
         output_dict[output_mod] = output_i.to_numpy()
@@ -604,150 +750,5 @@ def load_nlb_maze(dataset_name,
         hids_dict[output_mod + "_tca"] = hids_i
 
     return output_dict, hids_dict
-
-def load_nlb_rtt(dataset_name, 
-                verbose=False,
-                bin_width_ms=45, #ms (BCI: 45ms, no filter)
-                kern_sd_ms=45, #ms (25ms: Russo, but with much higher firing rates)
-    ):
-    from nlb_tools.nwb_interface import NWBDataset
-    import pandas as pd
-    filter_rates = kern_sd_ms > 0
-    _, nlb_dataset = dataset_name.split('-')
-
-    ## Load data from NWB file
-    data_path_nlb = os.path.join(data_path, "neural_latents")
-    file_name = '000129'
-    monkey_file = "sub-Indy"
-    data_file = os.path.join(data_path_nlb, file_name, monkey_file) 
-    dataset = NWBDataset(data_file)
-    if verbose:
-        print("Loaded from ", data_file)
-        print("All data")
-        print("dataset.data.shape", dataset.data.shape)
-    ### Dataset preparation
-    # Choose bin width and resample
-    dataset.resample(bin_width_ms)
-    if verbose:
-        print("All data, binned")
-        print(dataset.data.shape)
-    ################################################################################
-    ### Some preprocessing
-    # Remove test trials, because these do not contain behavior
-    trial_mask = np.array(dataset.trial_info["split"] != "test")
-    # Get trial data
-    trial_data = dataset.make_trial_data(ignored_trials=~trial_mask, )
-    # Free the memory from the full dataset, which we won't use anymore
-    del dataset
-    # Merge heldout and non-heldout spikes, since we don't distinguish here. 
-    trial_data.rename(columns={"heldout_spikes": "spikes"}, inplace=True)
-    trial_data = trial_data.reindex(trial_data.columns.sortlevel(0)[0], axis=1)
-    # Remove align and trial time. These are nonsense.
-    trial_data.drop('trial_time', axis=1, inplace=True)
-    trial_data.drop('align_time', axis=1, inplace=True)
-    # Distance to target
-    d_to_target = (trial_data.cursor_pos - trial_data.target_pos).apply(lambda x: norm(x), axis=1)
-    trial_data["d_to_target"] = d_to_target
-    # Where do targets change?
-    target_pos = trial_data.target_pos.to_numpy()
-    ids_shift_target = np.where(norm(target_pos[1:] - target_pos[:-1], axis=-1) != 0)[0] + 1
-    # Obtain actual trial times.
-    df_list = []
-    id_st = ids_shift_target[0]
-    for i_trial, id_st_p1 in enumerate(ids_shift_target[1:]):
-        tdi = trial_data.iloc[id_st:id_st_p1].copy()
-        tdi["trial_time"] = tdi["clock_time"] - tdi["clock_time"].iloc[0]
-        tdi["trial_id"] = i_trial
-        df_list.append(tdi)
-        id_st = id_st_p1
-    trial_data = pd.concat(df_list)
-    # Multiindex: use trial ID as index
-    trial_data['t'] = trial_data["trial_time"] / np.timedelta64(1, "ms")
-    trial_data.set_index(["trial_id", "t"], inplace=True)
-    # Remove unnecessary columns
-    trial_data.drop('margin', axis=1, inplace=True)
-    trial_data.drop('trial_time', axis=1, inplace=True)
-    # Rates
-    if filter_rates:
-        # Filter width for rates. It's useful to define this here, so we can set the margins appropriately.
-        import scipy.signal as signal
-        def filt(x):
-            kern_sd = int(round(kern_sd_ms / bin_width_ms))
-            window = signal.gaussian(kern_sd * 6, kern_sd, sym=True)
-            window /= np.sum(window)
-            return np.convolve(x, window, 'same')
-        rates = trial_data["spikes"].transform(filt).astype(np.float32)
-    else:
-        rates = trial_data["spikes"].astype(np.float32)
-    # In Hz:
-    rates = rates / (bin_width_ms * 1e-3)
-    if verbose:
-        print("rates, binned, removed test trials")
-        print("rates.shape", rates.shape)
-    ################################################################################
-    # Some other definitions that will be useful below.
-    trial_ids = trial_data.index.get_level_values(0).unique().to_numpy()
-    n_trials = len(trial_ids)
-    # Number of channels (neurons recorded)
-    n_ch = rates.shape[1]
-    # Checks
-    if verbose:
-        print("Number of channels:", n_ch)
-        print("Number of trials:", n_trials)
-    ##########################################################################################
-    # Behavior: cursor, hand pos, hand vel, eyes
-    obs_bh = ["target_pos", "cursor_pos", "finger_pos", "finger_vel"]
-    xy_bh = ["x", "y"]
-    mi_bh = pd.MultiIndex.from_product([obs_bh, xy_bh])
-    behav = trial_data[mi_bh].copy()
-    behav["clock_time"] = trial_data["clock_time"]
-    behav["d_to_target"] = trial_data["d_to_target"]
-    del trial_data
-    # Add acceleration to behavior
-    vel = behav["finger_vel"]
-    dv = vel.groupby(["trial_id"]).diff(1)
-    dv_str = "finger_acc"
-    behav[dv_str, "x"] = dv["x"]
-    behav[dv_str, "y"] = dv["y"]
-    obs_bh.append(dv_str)
-    # Labels
-    behav = behav[["finger_pos", "finger_vel", "finger_acc", "cursor_pos", "target_pos", "clock_time", "d_to_target"]]
-    mi_bh = behav.columns
-    obs_bh = np.array(mi_bh.get_level_values(0))[::2]
-    lbls_bh = [ob.replace("_", " ").capitalize() for ob in obs_bh]
-    n_bh = len(lbls_bh)
-    
-    ################################################################################
-    # For decoding, we limit ourselves to a smaller time interval, during which there is movement. 
-    t_min = 300
-    t_max = 600
-    t = behav.reset_index()["t"] 
-    dt = int(t[1] - t[0]) 
-    mask_mov = (t >= t_min) * (t < t_max)
-    ids_mov = np.where(mask_mov)[0]
-    
-    # Firing rates (with delay time between firing rates and output).
-    t_delays = {
-        "finger_pos": -300,
-        "finger_vel": -100,
-        "finger_acc": -150,
-    }
-        
-    # Join all three output modalities. This will save some time downstream, 
-    # because we only need to do the preprocessing once. 
-    output_mods = ["finger_pos", "finger_vel", "finger_acc"]
-    output_dict = {}
-    hids_dict = {}
-    for output_mod in output_mods:
-        output_i = behav.iloc[ids_mov][output_mod].to_numpy()
-        t_delay = t_delays[output_mod]
-        ids_hids = ids_mov + int(t_delay / dt)
-        hids_i = rates.iloc[ids_hids].to_numpy()
-        # Save normalized versions
-        output_dict[output_mod] = output_i
-        hids_dict[output_mod] = hids_i
-
-    return output_dict, hids_dict
-
 
 

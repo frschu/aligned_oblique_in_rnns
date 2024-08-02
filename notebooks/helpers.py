@@ -359,50 +359,6 @@ class Arrow3D(FancyArrowPatch):
         return np.min(zs)
         
     
-
-def plot_samples(ax, x, y, format_str='-', c=None, label=None, alpha=0.2,
-                 mode='mean_std', y_ge_0=False, std_fac=1., alpha_mean=1, 
-                 y_ge=None, y_le=None, 
-                 **kwargs):
-    if type(y) == torch.Tensor:
-        y = y.numpy()
-    if type(mode) == int:
-        i_s = mode
-        ax.plot(x, y[i_s], format_str, c=c, label=label, **kwargs)
-    else: 
-        if 'all' in mode:
-            for i_s in range(len(y)):
-                ax.plot(x, y[i_s], format_str, c=c, alpha=alpha, 
-                        label=label if i_s == 0 and not 'mean' in mode else None, 
-                       **kwargs)
-                
-        y_m = np.nanmean(y, axis=0)
-        if 'mean' in mode:
-            ax.plot(x, y_m, format_str, c=c, label=label, alpha=alpha_mean, **kwargs)
-        if 'std' in mode or 'sd' in mode:
-            y_s = np.nanstd(y, axis=0) 
-            # Apply a factor (as for the standard error, but custom)
-            y_s *= std_fac
-            # Bound?
-            if y_ge is not None:
-                lower_bound = y_ge
-            elif y_ge_0:
-                lower_bound = 0
-            else:
-                lower_bound = -np.inf
-            if y_le is not None:
-                upper_bound = y_le
-            else:
-                upper_bound = np.inf
-            ax.fill_between(x, np.maximum(y_m-y_s, lower_bound), np.minimum(y_m+y_s, upper_bound), 
-                            color=c, alpha=alpha, linewidth=0)
-        if 'se' in mode:
-            y_s = np.nanstd(y, axis=0) / np.sqrt(len(y[~np.isnan(y)]) / y.shape[1])
-            if y_ge_0:
-                ax.fill_between(x, np.maximum(y_m-y_s, 0), y_m+y_s, color=c, alpha=alpha, linewidth=0)
-            else:
-                ax.fill_between(x, y_m-y_s, y_m+y_s, color=c, alpha=alpha, linewidth=0)
-        
 def scale_lbl(scale, size_str="n"):
     """ Generate a label from a scale. """
     nscale= -scale
