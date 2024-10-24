@@ -4,7 +4,7 @@ The code should enable to reproduce all results.
 
 
 All analysis and plotting was done in notebooks.
-Similar to the structure of the paper, the notebooks are structured in 4 blocks:
+Similar to the structure of the paper, the notebooks are structured in blocks:
 - `cycling...`: These notebooks generate the example plots based on the cycling task.
 - `neuro...`: Simulating and analysing results for different neuroscience tasks.
 - `experimental_data...`: Analysis of the experimental data.
