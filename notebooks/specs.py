@@ -159,7 +159,7 @@ def set_mpl_rc():
     # Adapt the matplotlib.rc
     rcParams['font.family']         = font_family
     # rcParams['font.serif']          = 'Computer Modern'
-    rcParams['text.usetex']         = True
+    rcParams['text.usetex']         = False
     rcParams['text.latex.preamble'] = r'\usepackage{amsmath}' #for \text command
     rcParams['figure.figsize']      = figsize
     rcParams['font.weight']         = "light"

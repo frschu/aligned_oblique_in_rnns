@@ -9,6 +9,7 @@ Similar to the structure of the paper, the notebooks are structured in 4 blocks:
 - `neuro...`: Simulating and analysing results for different neuroscience tasks.
 - `experimental_data...`: Analysis of the experimental data.
 - `sine_example...`: The simple sine task that is analyzed in the Methods section.
+- `mft_GD...`: Mean field theory for gradient descent analyzed in the Methods section.
 
 Notebooks generating the bulk of the simulations end on `..._train_networks.ipynb`. 
 For the different neuroscience tasks, the notebook `neuro_compute_results.ipynb` computes the results for figures comparing across tasks. 
@@ -19,6 +20,7 @@ For the results on the experimental data:
 - Then run the notebook `experimental_data_compute_results.ipynb`. This will compute the statistics to be plotted. Can take some minutes.
 - Finally run `experimental_data_plot.ipynb` to generate plots. 
 
+The notebooks `cycling_noise_compression.ipynb`, `linear_rnn_noisy.ipynb` and `mft_mechanism.ipynb` contain both training and plotting. For each, training is relatively short (max 1h).
 
 ### Requirements
 All code was run with python 3.10.6, with packages specified in `requirements.txt` (to be used within a python venv).

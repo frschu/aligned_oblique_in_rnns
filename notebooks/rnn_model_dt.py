@@ -86,6 +86,7 @@ class RNN_Net(nn.Module):
                 self.decoder.bias.requires_grad = False
                 
     def rnn_forward(self, input, h_0=None, noise_std=0.):
+        input = input.type(torch.float32)
         
         if type(noise_std) in [np.ndarray, torch.Tensor]:
             has_noise = True
